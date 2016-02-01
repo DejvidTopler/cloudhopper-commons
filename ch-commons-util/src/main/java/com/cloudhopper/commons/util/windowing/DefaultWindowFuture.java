@@ -9,9 +9,9 @@ package com.cloudhopper.commons.util.windowing;
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -21,6 +21,8 @@ package com.cloudhopper.commons.util.windowing;
  */
 
 import java.lang.ref.WeakReference;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -31,7 +33,7 @@ import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Default implementation of a WindowFuture.
- * 
+ *
  * @author joelauer (twitter: @jjlauer or <a href="http://twitter.com/jjlauer" target=window>http://twitter.com/jjlauer</a>)
  */
 public class DefaultWindowFuture<K,R,P> implements WindowFuture<K,R,P> {
@@ -51,6 +53,7 @@ public class DefaultWindowFuture<K,R,P> implements WindowFuture<K,R,P> {
     private final long acceptTimestamp;
     private final long expireTimestamp;
     private final AtomicLong doneTimestamp;
+    private List<WindowFutureListener> listeners;
 
     /**
      * Creates a new DefaultWindowFuture.
@@ -85,9 +88,9 @@ public class DefaultWindowFuture<K,R,P> implements WindowFuture<K,R,P> {
         this.offerTimestamp = offerTimestamp;
         this.acceptTimestamp = acceptTimestamp;
         this.expireTimestamp = expireTimestamp;
-        this.doneTimestamp = new AtomicLong(0);    
+        this.doneTimestamp = new AtomicLong(0);
     }
-    
+
     @Override
     public K getKey() {
         return this.key;
@@ -107,7 +110,7 @@ public class DefaultWindowFuture<K,R,P> implements WindowFuture<K,R,P> {
     public Throwable getCause() {
         return this.cause.get();
     }
-    
+
     @Override
     public int getCallerStateHint() {
         return this.callerStateHint.get();
@@ -116,12 +119,12 @@ public class DefaultWindowFuture<K,R,P> implements WindowFuture<K,R,P> {
     public void setCallerStateHint(int callerState) {
         this.callerStateHint.set(callerState);
     }
-    
+
     @Override
     public boolean isCallerWaiting() {
         return (this.callerStateHint.get() == CALLER_WAITING);
     }
-    
+
     @Override
     public int getWindowSize() {
         return this.windowSize;
@@ -131,7 +134,7 @@ public class DefaultWindowFuture<K,R,P> implements WindowFuture<K,R,P> {
     public boolean hasExpireTimestamp() {
         return (this.expireTimestamp > 0);
     }
-    
+
     @Override
     public long getExpireTimestamp() {
         return this.expireTimestamp;
@@ -146,7 +149,7 @@ public class DefaultWindowFuture<K,R,P> implements WindowFuture<K,R,P> {
     public long getAcceptTimestamp() {
         return this.acceptTimestamp;
     }
-    
+
     @Override
     public boolean hasDoneTimestamp() {
         return (this.doneTimestamp.get() > 0);
@@ -156,7 +159,7 @@ public class DefaultWindowFuture<K,R,P> implements WindowFuture<K,R,P> {
     public long getDoneTimestamp() {
         return this.doneTimestamp.get();
     }
-    
+
     @Override
     public long getOfferToAcceptTime() {
         return (this.acceptTimestamp - this.offerTimestamp);
@@ -179,12 +182,12 @@ public class DefaultWindowFuture<K,R,P> implements WindowFuture<K,R,P> {
             return -1;
         }
     }
-    
+
     @Override
     public boolean isDone() {
         return this.done.get();
     }
-    
+
     private void lockAndSignalAll() {
         // notify any waiters that we're done
         windowLock.lock();
@@ -194,24 +197,24 @@ public class DefaultWindowFuture<K,R,P> implements WindowFuture<K,R,P> {
             windowLock.unlock();
         }
     }
-    
+
     @Override
     public boolean isSuccess() {
         return (this.done.get() && this.response.get() != null);
     }
-    
+
     @Override
     public void complete(P response) {
         complete(response, System.currentTimeMillis());
     }
-    
+
     @Override
     public void complete(P response, long doneTimestamp) {
         completeHelper(response, doneTimestamp);
         safelyRemoveRequestInWindow();
         lockAndSignalAll();
     }
-    
+
     private void safelyRemoveRequestInWindow() {
         Window window0 = this.window.get();
         if (window0 == null) {
@@ -220,7 +223,7 @@ public class DefaultWindowFuture<K,R,P> implements WindowFuture<K,R,P> {
             window0.removeHelper(key);
         }
     }
-    
+
     void completeHelper(P response, long doneTimestamp) {
         if (response == null) {
             throw new IllegalArgumentException("A response cannot be null if trying to complete()");
@@ -229,25 +232,25 @@ public class DefaultWindowFuture<K,R,P> implements WindowFuture<K,R,P> {
             throw new IllegalArgumentException("A valid doneTime must be > 0 if trying to complete()");
         }
         // set to done, but don't handle duplicate calls
-        if (!this.done.get()) {
-	    this.response.set(response);
-	    this.doneTimestamp.set(doneTimestamp);
-	    this.done.set(true);
-	}
+        if (this.done.compareAndSet(false, true)) {
+            this.response.set(response);
+            this.doneTimestamp.set(doneTimestamp);
+            notifyListeners();
+        }
     }
-    
+
     @Override
     public void fail(Throwable t) {
         fail(t, System.currentTimeMillis());
     }
-    
+
     @Override
     public void fail(Throwable t, long doneTimestamp) {
         failedHelper(t, doneTimestamp);
         safelyRemoveRequestInWindow();
         lockAndSignalAll();
     }
-    
+
     void failedHelper(Throwable t, long doneTimestamp) {
         if (t == null) {
             throw new IllegalArgumentException("A response cannot be null if trying to failed()");
@@ -256,30 +259,30 @@ public class DefaultWindowFuture<K,R,P> implements WindowFuture<K,R,P> {
             throw new IllegalArgumentException("A valid doneTimestamp must be > 0 if trying to failed()");
         }
         // set to done, but don't handle duplicate calls
-        if (!this.done.get()) {
+        if (this.done.compareAndSet(false, true)) {
             this.cause.set(t);
-	    this.doneTimestamp.set(doneTimestamp);
-	    this.done.set(true);
-	}
+            this.doneTimestamp.set(doneTimestamp);
+            notifyListeners();
+        }
     }
-    
+
     @Override
     public boolean isCancelled() {
         return (this.done.get() && this.response.get() == null && this.cause.get() == null);
     }
-    
+
     @Override
     public void cancel() {
         cancel(System.currentTimeMillis());
     }
-    
+
     @Override
     public void cancel(long doneTimestamp) {
         cancelHelper(doneTimestamp);
         safelyRemoveRequestInWindow();
         lockAndSignalAll();
     }
-    
+
     void cancelHelper(long doneTimestamp) {
         if (doneTimestamp <= 0) {
             throw new IllegalArgumentException("A valid doneTimestamp must be > 0 if trying to cancel()");
@@ -287,35 +290,36 @@ public class DefaultWindowFuture<K,R,P> implements WindowFuture<K,R,P> {
         // set to done, but don't handle duplicate calls
         if (this.done.compareAndSet(false, true)) {
             this.doneTimestamp.set(doneTimestamp);
+            notifyListeners();
         }
     }
-    
+
     @Override
     public boolean await() throws InterruptedException {
         // wait for only offerTimeoutMillis - offerToAcceptTime
         long remainingTimeoutMillis = this.originalOfferTimeoutMillis - this.getOfferToAcceptTime();
         return this.await(remainingTimeoutMillis);
-        
+
     }
-    
+
     @Override
     public boolean await(long timeoutMillis) throws InterruptedException {
         // k, if someone actually calls this method -- make sure to set the flag
         // this may have already been set earlier, but if not its safe to set here
         this.setCallerStateHint(CALLER_WAITING);
-        
+
         // if already done, return immediately
         if (isDone()) {
             return true;
         }
-        
+
         long startTime = System.currentTimeMillis();
         // try to acquire lock within given amount of time
         if (!windowLock.tryLock(timeoutMillis, TimeUnit.MILLISECONDS)) {
             this.setCallerStateHint(CALLER_WAITING_TIMEOUT);
             return false;
         }
-        
+
         try {
             // keep waiting until we're done
             while (!isDone()) {
@@ -335,7 +339,64 @@ public class DefaultWindowFuture<K,R,P> implements WindowFuture<K,R,P> {
         } finally {
             windowLock.unlock();
         }
-        
+
         return true;
+    }
+
+    @Override
+    public void addListener(WindowFutureListener listener) {
+        if (listener == null) {
+            throw new NullPointerException("listener");
+        }
+
+        synchronized (this) {
+            if (done.get()) {
+                notifyListener(listener);
+            } else {
+                if (listeners == null) {
+                    listeners = new ArrayList<WindowFutureListener>(1);
+                }
+                listeners.add(listener);
+            }
+        }
+    }
+
+    @Override
+    public void removeListener(WindowFutureListener listener) {
+        if (listener == null) {
+            throw new NullPointerException("listener");
+        }
+
+        synchronized (this) {
+            if (done.get())
+                return;
+
+            if (listeners != null)
+                listeners.remove(listener);
+        }
+    }
+
+    private void notifyListeners() {
+        if (listeners != null) {
+            for (WindowFutureListener l : listeners) {
+                notifyListener(l);
+            }
+
+            listeners = null;
+        }
+    }
+
+    private void notifyListener(WindowFutureListener l) {
+        try {
+            if(cause.get() != null) {
+                l.onFailure(this, cause.get());
+            } else if(response.get() != null) {
+                l.onComplete(this);
+            } else {
+                l.onExpire(this);
+            }
+        } catch (Throwable t) {
+            //LOGGER.error("Error notifying lister " + l, t);
+        }
     }
 }
