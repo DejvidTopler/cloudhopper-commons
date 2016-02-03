@@ -11,4 +11,6 @@ public interface WindowFutureListener<K, R, P> extends EventListener {
     void onFailure(WindowFuture<K, R, P> windowFuture, Throwable e);
 
     void onExpire(WindowFuture<K, R, P> windowFuture);
+
+    void onCancel(WindowFuture<K, R, P> windowFuture);
 }

@@ -47,6 +47,7 @@ public class DefaultWindowFuture<K,R,P> implements WindowFuture<K,R,P> {
     private final AtomicReference<Throwable> cause;
     private final AtomicInteger callerStateHint;
     private final AtomicBoolean done;
+    private final AtomicBoolean expired;
     private final long originalOfferTimeoutMillis;
     private final int windowSize;
     private final long offerTimestamp;
@@ -83,6 +84,7 @@ public class DefaultWindowFuture<K,R,P> implements WindowFuture<K,R,P> {
         this.cause = new AtomicReference<Throwable>();
         this.callerStateHint = new AtomicInteger(callerStateHint);
         this.done = new AtomicBoolean(false);
+        this.expired = new AtomicBoolean(false);
         this.originalOfferTimeoutMillis = originalOfferTimeoutMillis;
         this.windowSize = windowSize;
         this.offerTimestamp = offerTimestamp;
@@ -284,12 +286,21 @@ public class DefaultWindowFuture<K,R,P> implements WindowFuture<K,R,P> {
     }
 
     void cancelHelper(long doneTimestamp) {
+        cancelAndExpireHelper(doneTimestamp, false);
+    }
+
+    void expireHelper(long doneTimestamp) {
+        cancelAndExpireHelper(doneTimestamp, true);
+    }
+
+    private void cancelAndExpireHelper(long doneTimestamp, boolean expired) {
         if (doneTimestamp <= 0) {
             throw new IllegalArgumentException("A valid doneTimestamp must be > 0 if trying to cancel()");
         }
         // set to done, but don't handle duplicate calls
         if (this.done.compareAndSet(false, true)) {
             this.doneTimestamp.set(doneTimestamp);
+            this.expired.set(expired);
             notifyListeners();
         }
     }
@@ -392,8 +403,10 @@ public class DefaultWindowFuture<K,R,P> implements WindowFuture<K,R,P> {
                 l.onFailure(this, cause.get());
             } else if(response.get() != null) {
                 l.onComplete(this);
-            } else {
+            } else if(expired.get()){
                 l.onExpire(this);
+            } else {
+                l.onCancel(this);
             }
         } catch (Throwable t) {
             //LOGGER.error("Error notifying lister " + l, t);

@@ -34,8 +34,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * A utility class to support "windowed" protocols that permit requests to be
@@ -73,8 +71,6 @@ import org.slf4j.LoggerFactory;
  * @author joelauer (twitter: @jjlauer or <a href="http://twitter.com/jjlauer" target=window>http://twitter.com/jjlauer</a>)
  */
 public class Window<K,R,P> {
-    private static final Logger logger = LoggerFactory.getLogger(Window.class);
-
     private final int maxSize;
     private final ConcurrentHashMap<K,DefaultWindowFuture<K,R,P>> futures;
     private final ReentrantLock lock;
@@ -679,7 +675,7 @@ public class Window<K,R,P> {
             for (DefaultWindowFuture<K,R,P> future : this.futures.values()) {
                 if (future.hasExpireTimestamp() && now >= future.getExpireTimestamp()) {
                     expired.add(future);
-                    future.cancelHelper(now);
+                    future.expireHelper(now);
                 }
             }
             
