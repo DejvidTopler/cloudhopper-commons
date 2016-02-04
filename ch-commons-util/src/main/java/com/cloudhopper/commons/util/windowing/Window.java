@@ -71,6 +71,7 @@ import java.util.concurrent.locks.ReentrantLock;
  * @author joelauer (twitter: @jjlauer or <a href="http://twitter.com/jjlauer" target=window>http://twitter.com/jjlauer</a>)
  */
 public class Window<K,R,P> {
+    private static final int DEFAULT_FUTURES_COUNT = 100;
     private final int maxSize;
     private final ConcurrentHashMap<K,DefaultWindowFuture<K,R,P>> futures;
     private final ReentrantLock lock;
@@ -131,7 +132,7 @@ public class Window<K,R,P> {
             throw new IllegalArgumentException("size must be > 0");
         }
         this.maxSize = size;
-        this.futures = new ConcurrentHashMap<K,DefaultWindowFuture<K,R,P>>(size*2);
+        this.futures = new ConcurrentHashMap<K,DefaultWindowFuture<K,R,P>>(DEFAULT_FUTURES_COUNT);
         this.lock = new ReentrantLock();
         this.completedCondition = this.lock.newCondition();
         this.pendingOffers = new AtomicInteger(0);
